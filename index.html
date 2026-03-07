@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>משחק המטאפורות</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+
+<!-- ══════════════ SCREEN: HOME ══════════════ -->
+<div id="screen-home" class="screen active">
+  <div class="home-box">
+    <h1 class="game-title">משחק המטאפורות</h1>
+    <p class="subtitle">צרו קשרים יצירתיים בין תמונות</p>
+    <div class="home-buttons">
+      <button class="btn btn-primary" onclick="showCreate()">יצירת חדר חדש</button>
+      <button class="btn btn-secondary" onclick="showJoin()">הצטרפות לחדר קיים</button>
+    </div>
+
+    <!-- Create Room Form -->
+    <div id="create-form" class="sub-form hidden">
+      <h2>יצירת חדר</h2>
+      <input id="create-name" class="input-field" type="text" placeholder="שמך" maxlength="20" dir="rtl">
+      <input id="create-apikey" class="input-field" type="password"
+             placeholder="מפתח Anthropic API (אופציונלי)" dir="ltr">
+      <p class="hint">ניתן לשחק ללא מפתח — המחשב יאשר מטפורות לפי כללים פשוטים.</p>
+      <button class="btn btn-primary" onclick="createRoom()">צור חדר</button>
+    </div>
+
+    <!-- Join Room Form -->
+    <div id="join-form" class="sub-form hidden">
+      <h2>הצטרפות לחדר</h2>
+      <input id="join-name" class="input-field" type="text" placeholder="שמך" maxlength="20" dir="rtl">
+      <input id="join-code" class="input-field" type="text" placeholder="קוד חדר" maxlength="6"
+             dir="ltr" style="text-transform:uppercase">
+      <button class="btn btn-secondary" onclick="joinRoom()">הצטרף</button>
+    </div>
+
+    <div id="home-error" class="error-msg hidden"></div>
+  </div>
+</div>
+
+<!-- ══════════════ SCREEN: LOBBY ══════════════ -->
+<div id="screen-lobby" class="screen">
+  <div class="lobby-box">
+    <h1>המתנה לשחקנים</h1>
+    <div class="room-code-display">
+      קוד החדר: <span id="lobby-code" class="code-big"></span>
+    </div>
+    <p class="hint">שתפו את הקוד עם שאר השחקנים</p>
+    <div id="lobby-players" class="player-list"></div>
+    <button id="start-btn" class="btn btn-success hidden" onclick="startGame()">התחל משחק</button>
+    <div id="lobby-error" class="error-msg hidden"></div>
+    <p id="waiting-msg" class="hint">ממתין למארגן להתחיל...</p>
+  </div>
+</div>
+
+<!-- ══════════════ SCREEN: GAME ══════════════ -->
+<div id="screen-game" class="screen">
+  <div class="game-layout">
+
+    <!-- LEFT SIDEBAR -->
+    <div class="sidebar">
+      <div id="scoreboard" class="scoreboard"></div>
+      <div id="current-player-info" class="current-info"></div>
+      <div id="timer-display" class="timer hidden">⏱ <span id="timer-sec">45</span></div>
+      <div id="phase-hint" class="phase-hint"></div>
+    </div>
+
+    <!-- MAIN AREA -->
+    <div class="main-area">
+      <canvas id="board-canvas" width="800" height="420"></canvas>
+      <div id="connect-status" class="connect-status"></div>
+
+      <!-- Action Panel -->
+      <div id="action-panel" class="action-panel">
+
+        <!-- Move phase -->
+        <div id="panel-move" class="phase-panel hidden">
+          <p class="panel-title">בחר/י צומת סמוך לתנועה</p>
+        </div>
+
+        <!-- Select phase -->
+        <div id="panel-select" class="phase-panel hidden">
+          <p class="panel-title">לחץ/י על תמונות בלוח לבחירה (לפחות 2 מחוברות)</p>
+          <div id="select-info" class="select-info"></div>
+          <button id="confirm-sel-btn" class="btn btn-success" onclick="confirmSelection()" disabled>אשר בחירה</button>
+        </div>
+
+        <!-- Type phase -->
+        <div id="panel-type" class="phase-panel hidden">
+          <p class="panel-title">כתוב/י את המטפורה שלך:</p>
+          <textarea id="metaphor-input" class="metaphor-box" rows="3" dir="rtl"
+                    placeholder="הקלד/י מטפורה כאן..."></textarea>
+          <button class="btn btn-primary" onclick="submitMetaphor()">שלח מטפורה</button>
+        </div>
+
+        <!-- Validate phase -->
+        <div id="panel-validate" class="phase-panel hidden">
+          <p class="panel-title">ממתין לאישור המחשב...</p>
+          <div class="spinner"></div>
+        </div>
+
+        <!-- Rejected phase -->
+        <div id="panel-rejected" class="phase-panel hidden">
+          <p class="panel-title reject-title">המטפורה נדחתה</p>
+          <p id="reject-reason" class="reject-reason"></p>
+          <button id="appeal-btn" class="btn btn-warning" onclick="doAppeal()">ערעור (השחקנים האחרים יצביעו)</button>
+          <button class="btn btn-secondary" onclick="skipTurn()">וויתור ומעבר לתור הבא</button>
+        </div>
+
+        <!-- Appeal phase -->
+        <div id="panel-appeal" class="phase-panel hidden">
+          <p class="panel-title">הצבעה: האם לאשר את המטפורה?</p>
+          <p id="appeal-metaphor-text" class="appeal-text"></p>
+          <div id="appeal-vote-btns">
+            <button class="btn btn-success" onclick="castVote(true)">✓ אישור</button>
+            <button class="btn btn-danger" onclick="castVote(false)">✗ דחייה</button>
+          </div>
+          <p id="appeal-vote-count" class="hint"></p>
+          <p id="appeal-my-vote" class="hint hidden">הצבעתי</p>
+        </div>
+
+        <!-- Waiting phase (not your turn) -->
+        <div id="panel-waiting" class="phase-panel hidden">
+          <p class="panel-title waiting-title">ממתין לתורך...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ SCREEN: ENDGAME ══════════════ -->
+<div id="screen-endgame" class="screen">
+  <div class="endgame-box">
+    <h1 id="endgame-winner-title">המשחק הסתיים!</h1>
+
+    <!-- Voting phase -->
+    <div id="endgame-voting" class="hidden">
+      <h2>הצביעו למטפורה הטובה ביותר!</h2>
+      <div id="metaphor-vote-list" class="metaphor-vote-list"></div>
+      <p id="endgame-voted-msg" class="hint hidden">הצבעתי! ממתין לשאר...</p>
+    </div>
+
+    <!-- Final results -->
+    <div id="endgame-results" class="hidden">
+      <h2>תוצאות סופיות</h2>
+      <div id="final-scores" class="final-scores"></div>
+      <div id="best-metaphor-display" class="best-metaphor"></div>
+      <a id="download-excel-btn" class="btn btn-success" href="#">הורד תוצאות Excel</a>
+    </div>
+  </div>
+</div>
+
+<script src="/static/game.js"></script>
+</body>
+</html>

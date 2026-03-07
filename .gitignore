@@ -1,0 +1,6 @@
+api_key.txt
+*.xlsx
+~$*.xlsx
+__pycache__/
+*.pyc
+.env
